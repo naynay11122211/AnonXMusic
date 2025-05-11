@@ -1,15 +1,40 @@
-import asyncio
-import os
-import re
+import asyncio, httpx, yt_dlp, os
+import glob, re, random, json, requests
+
 from typing import Union
-
-import yt_dlp
-from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
-from youtubesearchpython.__future__ import VideosSearch
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+from pyrogram.enums import MessageEntityType
+from concurrent.futures import ThreadPoolExecutor
+from youtubesearchpython.__future__ import VideosSearch, CustomSearch
 
-from AnonXMusic.utils.database import is_on_off
-from AnonXMusic.utils.formatters import time_to_seconds
+from AnonXmusic import LOGGER
+from AnonXmusic.utils.database import is_on_off
+from AnonXmusic.utils.formatters import time_to_seconds
+
+
+#=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×[ NO NEED COOKIES ]=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×
+
+def cookie_txt_file():
+    try:
+        folder_path = f"{os.getcwd()}/cookies"
+        filename = f"{os.getcwd()}/cookies/logs.csv"
+        txt_files = glob.glob(os.path.join(folder_path, '*.txt'))
+        if not txt_files:
+            raise FileNotFoundError("No .txt files found in the specified folder.")
+        cookie_txt_file = random.choice(txt_files)
+        with open(filename, 'a') as file:
+            file.write(f'Choosen File : {cookie_txt_file}\n')
+        return f"""cookies/{str(cookie_txt_file).split("/")[-1]}"""
+    except:
+        pass
+        
+#=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×=×
+
+def time_to_seconds(time):
+    stringt = str(time)
+    return sum(int(x) * 60**i for i, x in enumerate(reversed(stringt.split(":"))))
 
 
 async def shell_cmd(cmd):
@@ -25,6 +50,21 @@ async def shell_cmd(cmd):
         else:
             return errorz.decode("utf-8")
     return out.decode("utf-8")
+
+
+
+async def get_stream_url(query, video=False):
+    api_url = "http://188.213.173.141:1470/youtube"
+    api_key = "SANATANIxTECH"
+    
+    async with httpx.AsyncClient(timeout=60) as client:
+        params = {"query": query, "video": video, "api_key": api_key}
+        response = await client.get(api_url, params=params)
+        if response.status_code != 200:
+            return ""
+        info = response.json()
+        return info.get("stream_url")
+
 
 
 class YouTubeAPI:
@@ -119,20 +159,9 @@ class YouTubeAPI:
             link = self.base + link
         if "&" in link:
             link = link.split("&")[0]
-        proc = await asyncio.create_subprocess_exec(
-            "yt-dlp",
-            "-g",
-            "-f",
-            "best[height<=?720][width<=?1280]",
-            f"{link}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if stdout:
-            return 1, stdout.decode().split("\n")[0]
-        else:
-            return 0, stderr.decode()
+            
+        return await get_stream_url(link, True)
+        
 
     async def playlist(self, link, limit, user_id, videoid: Union[bool, str] = None):
         if videoid:
@@ -321,26 +350,9 @@ class YouTubeAPI:
             fpath = f"downloads/{title}.mp3"
             return fpath
         elif video:
-            if await is_on_off(1):
-                direct = True
-                downloaded_file = await loop.run_in_executor(None, video_dl)
-            else:
-                proc = await asyncio.create_subprocess_exec(
-                    "yt-dlp",
-                    "-g",
-                    "-f",
-                    "best[height<=?720][width<=?1280]",
-                    f"{link}",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await proc.communicate()
-                if stdout:
-                    downloaded_file = stdout.decode().split("\n")[0]
-                    direct = None
-                else:
-                    return
+            downloaded_file = await get_stream_url(link, True)
+            direct = None
         else:
-            direct = True
-            downloaded_file = await loop.run_in_executor(None, audio_dl)
+            direct = None
+            downloaded_file = await get_stream_url(link, False)
         return downloaded_file, direct
